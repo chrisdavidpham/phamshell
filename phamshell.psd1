@@ -17,7 +17,7 @@
   AliasesToExport = @()
   PrivateData = @{
     PSData = @{
-      Prerelease = 'alpha1'
+      Prerelease = 'alpha2'
       Tags = @('Windows', 'EventLog', 'SystemActivity', 'UserActivity', 'PowerShell')
       LicenseUri = ''
       ProjectUri = ''

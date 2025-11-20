@@ -49,8 +49,7 @@ Function Get-UserActivityEvents {
   .SYNOPSIS
     Calculates user activity duration for a specific date.
   .DESCRIPTION
-    Determines the duration of user activity for a given date by analyzing system events
-    and assuming activity between 6 AM and the last system event of the day.
+    Determines the duration of user activity for a given date by analyzing system events.
   .PARAMETER Date
     The date to calculate activity duration for. Defaults to the current date.
   .EXAMPLE
@@ -62,8 +61,7 @@ Function Get-UserActivityDuration {
   param(
     [DateTime]$Date = (Get-Date).Date
   )
-  Get-UserActivityEvents -StartTime $Date.Date -EndTime $Date.AddDays(1).Date | 
-    Where-Object {$_.TimeCreated.Hour -ge 6} | # Assume system events from 12am-6am aren't user activity.
+  Get-UserActivityEvents -StartTime $Date.Date -EndTime $Date.AddDays(1).Date |
     Select-Object -ExpandProperty TimeCreated -First 1 -Last 1 |
     ForEach-Object {} {$First = $First ?? $_; $Last = $_} { $First - $Last }
 }
