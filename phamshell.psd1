@@ -8,9 +8,8 @@
   Description = 'PowerShell module for analyzing Windows system activity and user activity duration from event logs.'
   PowerShellVersion = '7.0'
   FunctionsToExport = @(
-    'Get-UserActivityEvents',
-    'Get-UserActivityDuration',
-    'Get-AllUserActivityDurations'
+    'Get-DailySystemActivityDurations',
+    'Get-SystemActivityDuration'
   )
   CmdletsToExport = @()
   VariablesToExport = @()

@@ -12,16 +12,16 @@ Get-Module "phamshell"
 ```
 |ModuleType|Version|PreRelease|Name     |ExportedCommands                   |
 |----------|-------|----------|---------|-----------------------------------|
-|Script    |1.0.0  |          |phamshell|{Get-AllUserActivityDurations, ...}|
+|Script    |1.0.0  |          |phamshell|{Get-DailySystemActivityDurations, ...}|
 ```ps1
-Get-UserActivityEvents
+Get-SystemActivityEvents
 ```
 |TimeCreated            |Id |Message|
 |-----------------------|---|-------|
 |10/14/2025 11:34:20 AM |566|The system session has transitioned from 132 to 134.…
 |10/14/2025 11:34:20 AM |507|The system is exiting Modern Standby …
 ```ps1
-Get-UserActivityDuration(Get-Date)
+Get-SystemActivityDuration(Get-Date)
 ```
 > Days              : 0  
 > Hours             : 1  
@@ -36,7 +36,7 @@ Get-UserActivityDuration(Get-Date)
 > TotalMilliseconds : 5027109.9827
 ## Examples
 ```ps1
-Get-AllUserActivityDurations | Where-Object {$_.Hours -gt 0} | Measure-Object -AllStats -Property Hours
+Get-DailySystemActivityDurations | Where-Object {$_.Hours -gt 0} | Measure-Object -AllStats -Property Hours
 ```
 > Count             : 99  
 > Average           : 8.22444444444445  

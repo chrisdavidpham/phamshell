@@ -1,89 +1,99 @@
 #Requires -Version 7.0
 <#
   .SYNOPSIS
-    Retrieves user activity events from Windows Event Log.
+    Gets a system's activity for a given day.
   .DESCRIPTION
-    Gets system events related to user activity from the Windows Event Log, including 
-    system startup, shutdown, sleep, wake, and power events.
-  .PARAMETER StartTime
-    The start time for the event query. Defaults to the beginning of the current day.
-  .PARAMETER EndTime
-    The end time for the event query. Defaults to the current time.
-  .PARAMETER Id
-    Array of event IDs to filter for. Defaults to common system activity events.
-  .EXAMPLE
-    Get-UserActivityEvents -StartTime (Get-Date).AddDays(-1) -EndTime (Get-Date)
-  .EXAMPLE
-    Get-UserActivityEvents -Id @(6005, 6006) -StartTime (Get-Date).Date
+    Odd system session # == start session
+    Even system session # == end session
 #>
-Function Get-UserActivityEvents {
+Function Get-SystemActivityDuration {
+  [OutputType([Timespan])]
   param(
-    [DateTime]$StartTime = (Get-Date).Date,
-    [DateTime]$EndTime = (Get-Date),
-    [Int[]]$Id = (
-    41,   # Reboot
-    42,   # Sleep
-    105,  # Power Source Change
-    107,  # Wake
-    506,  # Enter Standby
-    507,  # Exit Standby
-    566,  # Session Transition
-    1074, # User Shutdown
-    6005, # Startup
-    6006  # Shutdown
-    )
-  )
-  $Filter = @{
-    LogName = 'System';
-    StartTime = $StartTime;
-    EndTime = $EndTime
-  }
-  if ($Id) {
-    $Filter.Add('Id', $Id)
-  }
-  Get-WinEvent -FilterHashtable $Filter -ErrorAction SilentlyContinue |
-    Select-Object -Property TimeCreated, Id, Message
-}
-
-<#
-  .SYNOPSIS
-    Calculates user activity duration for a specific date.
-  .DESCRIPTION
-    Determines the duration of user activity for a given date by analyzing system events.
-  .PARAMETER Date
-    The date to calculate activity duration for. Defaults to the current date.
-  .EXAMPLE
-    Get-UserActivityDuration -Date (Get-Date).AddDays(-1)
-  .EXAMPLE
-    Get-UserActivityDuration
-#>
-Function Get-UserActivityDuration {
-  param(
+    [Switch]$All,
+    [Switch]$Average,
     [DateTime]$Date = (Get-Date).Date
   )
-  Get-UserActivityEvents -StartTime $Date.Date -EndTime $Date.AddDays(1).Date |
-    Select-Object -ExpandProperty TimeCreated -First 1 -Last 1 |
-    ForEach-Object {} {$First = $First ?? $_; $Last = $_} { $First - $Last }
+  $TotalDuration = New-Timespan
+  $EarliestDate = [DateTime](Get-WinEvent -LogName System -MaxEvents 1 -Oldest |
+    Select-Object -First 1 |
+    Select-Object -ExpandProperty TimeCreated).AddDays(1).Date
+  [Datetime] $EndDate = (Get-Date).AddDays(-1)
+  if ($All.IsPresent)
+  {
+    Write-Debug "Getting total session duration from $($EarliestDate.toString("yyyy-MM-dd")) to $($EndDate.toString("yyyy-MM-dd")).";
+    $TotalDuration = Get-DailySystemActivityDurations -StartDateTime $EarliestDate -EndDateTime $EndDate |
+      Measure-Object -Property "TotalHours" -Sum |
+      Select-Object -ExpandProperty Sum
+  }
+  elseif ($Average.IsPresent)
+  {
+    Write-Debug "Getting average daily session duration from $($Date.toString("yyyy-MM-dd")).";
+    $TotalDuration = (Get-DailySystemActivityDurations -StartDateTime $EarliestDate -EndDateTime $EndDate |
+      Measure-Object -Property "TotalHours" -Average |
+      Select-Object -ExpandProperty Average)
+  }
+  else
+  {
+    Write-Debug "Getting sessions on day $($Date.toString("yyyy-MM-dd")).";
+    [System.Diagnostics.Eventing.Reader.EventLogRecord[]] $Events = (
+      Get-WinEvent -FilterHashtable @{
+        StartTime=$Date.Date;
+        Endtime=$Date.Date.AddDays(1);
+        LogName='System';
+        Id=(506,507);
+      } -ErrorAction SilentlyContinue
+    ) ?? @()
+    # TODO: Sometimes the system doesn't end a session when logging out. But if the user didn't actually logout, then that time isn't counted but should be included.
+    $CurrentStartTime = $Events[-1].TimeCreated
+
+    for ($i = $Events.count - 1; $i -ge 0; $i--)
+    {
+      if ($Events[$i].Id -eq 506)
+      {
+        $SessionDuration = $Events[$i].TimeCreated - $CurrentStartTime
+        $TotalDuration += $SessionDuration
+        Write-Debug "Ended session @ $($Events[$i].TimeCreated). SessionDuration: $($SessionDuration). TotalDuration: $TotalDuration"
+      }
+      else
+      {
+        Write-Debug "Began session @ $($Events[$i].TimeCreated)."
+        $CurrentStartTime = $Events[$i].TimeCreated
+      }
+    }
+    if ($Events[0].Id -eq 507)
+    {
+      [TimeSpan]$Overtime = $Date.Date.AddDays(1) - $Events[0].TimeCreated
+      $TotalDuration += $Overtime
+      Write-Debug "OverT @ $($Date.Date.AddDays(1)). Duration: $($Overtime) hours. Total: $TotalDuration"
+    }
+  }
+  $TotalDuration
 }
 
-<#
-  .SYNOPSIS
-    Calculates user activity durations for all available dates in the system event log.
-  .DESCRIPTION
-    Iterates through all available dates in the system event log and calculates
-    user activity duration for each day.
-  .EXAMPLE
-    Get-AllUserActivityDurations
-#>
-Function Get-AllUserActivityDurations {
-  [DateTime] $EarliestDate = Get-WinEvent -LogName System -MaxEvents 1 -Oldest | ForEach-Object {$_.TimeCreated.Date}
-  for ($Date = $EarliestDate; $Date -lt (Get-Date).Date; $Date = $Date.AddDays(1))
+Function Get-DailySystemActivityDurations {
+  [OutputType([Timespan[]])]
+  param(
+    [Int]$DaysBack = 1,
+    [DateTime]$StartDateTime = (Get-Date).AddDays(-$DaysBack).Date,
+    [DateTime]$EndDateTime = (Get-Date).Date
+  )
+  [System.Collections.Generic.List[Timespan]] $Durations = @()
+  [System.Diagnostics.Eventing.Reader.EventLogRecord[]] $Events = (
+    Get-WinEvent -FilterHashtable @{
+      StartTime=$StartDateTime;
+      Endtime=$EndDateTime;
+      LogName='System';
+      Id=(506,507);
+    } -ErrorAction SilentlyContinue
+  ) ?? @()
+  $CurrentDateTime = $StartDateTime.Date
+  while ($CurrentDateTime -lt $EndDateTime)
   {
-    $Duration = Get-UserActivityDuration($Date)
-    $Hours = [Math]::Round($Duration.TotalHours, 2)
-    @{Date=$Date;DayOfWeek=$Date.DayOfWeek;Hours=$Hours} | Select-Object -Property *
+    [Timespan]$Duration = Get-SystemActivityDuration -Date $CurrentDateTime
+    $Durations.Add($Duration)
+    $CurrentDateTime = $CurrentDateTime.AddDays(1)
   }
+  return $Durations
 }
-Export-ModuleMember -Function Get-UserActivityEvents
-Export-ModuleMember -Function Get-UserActivityDuration
-Export-ModuleMember -Function Get-AllUserActivityDurations
+
+Export-ModuleMember -Function Get-SystemActivityDuration
